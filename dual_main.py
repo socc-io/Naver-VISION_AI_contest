@@ -102,6 +102,7 @@ if __name__ == '__main__':
     args.add_argument('--epochs', type=int, default=200)
     args.add_argument('--batch_size', type=int, default=64)
     args.add_argument('--debug', action='store_true', help='debug mode')
+    args.add_argument('--debug_data', type=str, default="./debug_data", help='debug_data')
     args.add_argument('--lr', type=float, default=0.0001, help='learning rate')
 
     args.add_argument('--dev_querynum', type=int, default=4000, help='dev split percentage')
@@ -279,7 +280,7 @@ if __name__ == '__main__':
             nsml.cache(train_data_loader, data_path=train_dataset_path,
                         output_path=output_path)
         else:
-            train_dataset_path = './debug_data'
+            train_dataset_path = config.debug_data
             train_data_loader(train_dataset_path, output_path=output_path)
 
         with open(output_path[0], 'rb') as img_f:
