@@ -30,7 +30,7 @@ def get_feature(queries, references, sess):
     total_query_vecs = []
     total_reference_vecs = []
     graph = tf.get_default_graph()
-    feature_vector = graph.get_tensor_by_name("feature_vector:0")
+    feature_vector = graph.get_tensor_by_name("logits_1:0")
     input_x = graph.get_tensor_by_name("input_X1:0")
 
     try:
