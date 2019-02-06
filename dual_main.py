@@ -54,7 +54,7 @@ def bind_model(sess):
             raise NotImplementedError('No checkpoint!')
         print('model loaded :' + file_path)
 
-    def infer(queries, references, _query_img=None, _reference_img=None):
+    def infer(queries, references, _query_img=None, _reference_img=None, batch_size=64):
 
         # load, and process images
         if _query_img is None:
@@ -67,11 +67,11 @@ def bind_model(sess):
             db.sort()
             queries_full_paths = list(map(lambda x: '/data/ir_ph2/test/test_data/query/' + x + '.jpg', queries))
             db_full_path = list(map(lambda x: '/data/ir_ph2/test/test_data/reference/' + x + '.jpg', db))
-            _, query_vecs, _, reference_vecs = get_feature(queries_full_paths, db_full_path, sess)
+            _, query_vecs, _, reference_vecs = get_feature(queries_full_paths, db_full_path, sess, batch_size)
 
         else:
             # debug
-            _, query_vecs, _, reference_vecs = get_feature(_query_img, _reference_img, sess)
+            _, query_vecs, _, reference_vecs = get_feature(_query_img, _reference_img, sess, batch_size)
             db = references
 
         query_vecs = l2_normalize(query_vecs)
@@ -106,7 +106,7 @@ if __name__ == '__main__':
     args.add_argument('--lr', type=float, default=0.0001, help='learning rate')
 
     args.add_argument('--dev_querynum', type=int, default=4000, help='dev split percentage')
-    args.add_argument('--dev_referencenum', type=int, default=2, help='dev split percentage')
+    args.add_argument('--dev_referencenum', type=int, default=1000, help='dev split percentage')
 
     # augmentation
     args.add_argument('--augmentation', action='store_true', help='apply random crop in processing')
@@ -161,10 +161,11 @@ if __name__ == '__main__':
 
     # init model
     global_step = tf.Variable(0, name="mandoo_global_step")
+
     model = Delf_dual_model(X1, X2, num_classes,
-        skipcon_attn=config.skipcon_attn,
-        stop_gradient_sim=config.stop_gradient_sim,
-        logit_concat_sim=config.logit_concat_sim)
+                                skipcon_attn=config.skipcon_attn,
+                                stop_gradient_sim=config.stop_gradient_sim,
+                                logit_concat_sim=config.logit_concat_sim)
 
     # define loss function to optimize 
     acc_logit = tf.zeros([])
@@ -182,8 +183,8 @@ if __name__ == '__main__':
         loss_crossent_2 = tf.nn.softmax_cross_entropy_with_logits_v2(logits=model.logits_2, labels=Y2)
         loss_crossent_logit = tf.reduce_sum(loss_crossent_1 + loss_crossent_2)
 
-        loss_squared_1 = tf.losses.mean_squared_error(labels=Y1, predictions=tf.nn.sigmoid(model.logits_1))
-        loss_squared_2 = tf.losses.mean_squared_error(labels=Y2, predictions=tf.nn.sigmoid(model.logits_2))
+        loss_squared_1 = tf.losses.mean_squared_error(labels=Y1, predictions=tf.nn.softmax(model.logits_1))
+        loss_squared_2 = tf.losses.mean_squared_error(labels=Y2, predictions=tf.nn.softmax(model.logits_2))
         loss_squared_logit = tf.reduce_sum(loss_squared_1 + loss_squared_2)
 
         pred_1 = tf.argmax(model.logits_1, 1, name="pred_1")
@@ -196,7 +197,7 @@ if __name__ == '__main__':
         Y_sim = tf.expand_dims(tf.reduce_sum(Y1 * Y2, axis=1), axis=-1)
         pred_sim = tf.cast(tf.greater(tf.nn.sigmoid(model.similarity), 0.5), tf.int64)
         acc_sim = tf.reduce_mean(tf.cast(tf.equal(pred_sim, tf.cast(Y_sim, tf.int64)), "float"))
-        loss_sim = tf.nn.sigmoid_cross_entropy_with_logits(logits= model.similarity, labels=Y_sim)
+        loss_sim = tf.nn.sigmoid_cross_entropy_with_logits(logits=model.similarity, labels=Y_sim)
         loss_sim = tf.reduce_sum(loss_sim)
 
     if config.train_sim_dist:
@@ -365,7 +366,7 @@ if __name__ == '__main__':
 
                 if step % 150 == 0 or (config.debug and step % 1 == 0):
                     do_save = False
-                    infer_result = local_infer(queries, references, queries_img, reference_img)
+                    infer_result = local_infer(queries, references, queries_img, reference_img, batch_size)
                     mAP, mean_recall_at_K, min_first_1_at_K = evaluate_rank(infer_result)
 
                     if best_min_first_K >= min_first_1_at_K:
