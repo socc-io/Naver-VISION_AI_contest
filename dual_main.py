@@ -71,12 +71,14 @@ def bind_model(sess):
 
         else:
             # debug
-            _, query_vecs, _, reference_vecs = get_feature(_query_img, _reference_img, sess)
+            _, query_outputs, _, reference_outputs = get_feature(_query_img, _reference_img, sess)
             db = references
 
-        query_vecs = l2_normalize(query_vecs)
-        reference_vecs = l2_normalize(reference_vecs)
-        sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        sim_matrix = []
+        for query_output in query_outputs:
+            for reference_output in reference_outputs:
+                sim_matrix.append(get_cnt_inliers)
+        sim_matrix = np.asarray(sim_matrix).reshape(len(query_outputs), len(reference_outputs))
         indices = np.argsort(sim_matrix, axis=1)
         indices = np.flip(indices, axis=1)
 

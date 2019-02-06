@@ -5,8 +5,7 @@ from tensorflow.contrib.layers import fully_connected
 from delf import delf_config_pb2
 from delf import feature_extractor
 from delf import feature_io
-
-
+        
 class Delf_model(object):
     def __init__(self, X, num_classes):
         delf_model = DelfV1('resnet_v1_50/block3')
@@ -52,12 +51,79 @@ class Delf_fuse_model(object):
 class Delf_dual_model(object):
 
     def __init__(self, X1, X2, num_classes, skipcon_attn=False, stop_gradient_sim=False, logit_concat_sim=False):
+        # bounding_boxes = tf.reshape(tf.constant([0., 0., 1., 1.]), [1, 1, 4])
+        def _get_locations(box):
+            return tf.divide(
+                tf.add(
+                    tf.gather(box, [0, 1], axis=1), tf.gather(box, [2, 3], axis=1)),
+                2.0)
+
+        # def random_crop(image):
+        #     begin, size, _ = tf.image.sample_distorted_bounding_box(
+        #         tf.shape(image),
+        #         bounding_boxes=bounding_boxes)
+        #     distorted_image = tf.image.crop_to_bounding_box(
+        #         image, begin[0], begin[1], size[0], size[1])
+        #     distorted_image = tf.image.resize_images(
+        #         distorted_image, tf.constant([224, 224]))
+        #     return distorted_image
+
+        # X1 = tf.map_fn(random_crop, X1)
+
         # get feature map from resnet
         delf_model = DelfV1('resnet_v1_50/block3', skipcon_attn=skipcon_attn)
 
         # get logits, features and attentions from delf model
         logits_1, attn_1, feat_1 = delf_model.AttentionModel(X1, num_classes, training_resnet=True, training_attention=True)
         logits_2, attn_2, feat_2 = delf_model.AttentionModel(X2, num_classes, training_resnet=True, training_attention=True, reuse=True)
+
+        def _ModelFn(images, normalized_image, reuse):
+            """Attention_model to get feature map and attention score map.
+
+            Args:
+            images: Image tensor.
+            normalized_image: Whether or not the images are normalized.
+            reuse: Whether or not the layer and its variables should be reused.
+            Returns:
+            attention: Attention score after the non-linearity.
+            feature_map: Feature map after ResNet convolution.
+            """
+            if normalized_image:
+                image_tensor = images
+            else:
+                image_tensor = NormalizePixelValues(images)
+
+            # Extract features and attention scores.
+            _, attention, _, feature_map, _ = delf_model.GetAttentionPrelogit(
+                image_tensor,
+                attention_nonlinear='softplus',
+                attention_type='use_l2_normalized_feature',
+                kernel=[1, 1],
+                training_resnet=False,
+                training_attention=True,
+                reuse=True)
+            return attention, feature_map
+
+        def _ExtractKeypointDescriptor(image):
+            boxes, feature_scales, features, scores = (
+                feature_extractor.ExtractKeypointDescriptor(
+                    image,
+                    layer_name='resnet_v1_50/block3',
+                    image_scales=tf.constant([0.25, 0.3536, 0.5000, 0.7072, 1.0]),
+                    iou=1.0,
+                    max_feature_num=10,
+                    abs_thres=1.5,
+                    model_fn=_ModelFn))
+            return boxes, feature_scales, features, scores
+
+        # get descriptors
+        boxes, feature_scales, features, scores = tf.map_fn(
+            _ExtractKeypointDescriptor, 
+            X1, 
+            dtype=(tf.float32, tf.float32, tf.float32, tf.float32))
+
+        locations = tf.map_fn(_get_locations, boxes)
+        attentions = tf.map_fn(lambda x: tf.reshape(x, [tf.shape(x)[0]]), scores)
 
         # apply trained attention on features
         feat_attn_1 = tf.reduce_sum(attn_1 * feat_1, [1, 2])
@@ -110,4 +176,7 @@ class Delf_dual_model(object):
         self.attention_2 = attn_2
         self.feat_map = tf.add(feat_1, 0, name="feature_map")
         self.similarity = tf.expand_dims(sim_12, axis=-1)
-
+        self.boxes = tf.add(boxes, 0, name="boxes")
+        self.scales = tf.add(feature_scales, 0, name="scales")
+        self.scores = tf.add(attentions, 0, name="scores")
+        self.locations = tf.add(locations, 0, name="locations")
