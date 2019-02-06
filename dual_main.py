@@ -105,8 +105,8 @@ if __name__ == '__main__':
     args.add_argument('--debug_data', type=str, default="./debug_data", help='debug_data')
     args.add_argument('--lr', type=float, default=0.0001, help='learning rate')
 
-    args.add_argument('--dev_querynum', type=int, default=4000, help='dev split percentage')
-    args.add_argument('--dev_referencenum', type=int, default=1000, help='dev split percentage')
+    args.add_argument('--dev_querynum', type=int, default=300, help='dev split percentage')
+    args.add_argument('--dev_referencenum', type=int, default=20, help='dev split percentage')
 
     # augmentation
     args.add_argument('--augmentation', action='store_true', help='apply random crop in processing')
@@ -351,8 +351,8 @@ if __name__ == '__main__':
                 _, train_loss, train_loss_logit_cross, train_loss_logit_sqrt, train_loss_sim, train_loss_sim_dist, \
                 train_loss_max_neg, step, train_acc_logit, train_acc_sim, train_loss_triplet = train_step(
                     img_batch_1, label_batch_1, img_batch_2, label_batch_2, config)
+                prev_epoch = epoch
                 epoch = math.floor(step * batch_size / size_of_epoch)
-
                 # print process
                 if step % 30 == 0 or config.debug:
                     print_second = int(time.time() - start_time)
@@ -364,8 +364,8 @@ if __name__ == '__main__':
                         train_loss, train_loss_logit_cross, train_loss_logit_sqrt, train_loss_sim,
                         train_loss_sim_dist, train_loss_max_neg, train_loss_triplet))
 
+                do_save = False
                 if step % 150 == 0 or (config.debug and step % 1 == 0):
-                    do_save = False
                     infer_result = local_infer(queries, references, queries_img, reference_img, batch_size)
                     mAP, mean_recall_at_K, min_first_1_at_K = evaluate_rank(infer_result)
 
@@ -380,12 +380,17 @@ if __name__ == '__main__':
                         print("----> Best mAP : best-mAP {:g}".format(best_mAP))
                         do_save = True
 
-                    if do_save:
-                        # save model
-                        nsml.report(summary=True, epoch=str(step), epoch_total=nb_epoch)
-                        nsml.save(step)
-                        print("Model saved : %d step" % step)
-                        print("=============================================================================================================")
+                if epoch - prev_epoch == 1:
+                    print("----> Epoch changed saving")
+                    do_save = True
+
+                if do_save:
+                    # save model
+                    nsml.report(summary=True, epoch=str(step), epoch_total=nb_epoch)
+                    nsml.save(step)
+                    print("Model saved : %d step" % step)
+                    print("=============================================================================================================")
+
 
             except tf.errors.OutOfRangeError:
                 print("finish train!")
