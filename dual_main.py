@@ -54,7 +54,7 @@ def bind_model(sess):
             raise NotImplementedError('No checkpoint!')
         print('model loaded :' + file_path)
 
-    def infer(queries, references, _query_img=None, _reference_img=None, batch_size=64):
+    def infer(queries, references, _query_img=None, _reference_img=None, batch_size=128):
 
         # load, and process images
         if _query_img is None:
