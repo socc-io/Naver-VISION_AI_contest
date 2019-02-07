@@ -22,7 +22,7 @@ from data_loader import get_assignment_map_from_checkpoint,\
     convert_to_query_db_data, convert_to_query_db_data_fixed_window, \
     convert_to_query_db_data_for_generator
 from measure import evaluate_mAP, evaluate_rank
-from inference import get_feature
+from inference import get_feature, get_cnt_inliers
 from train_utils import l2_normalize
 from loss import batch_hard_triplet_loss
 from model.delf_model import *
@@ -54,7 +54,7 @@ def bind_model(sess):
             raise NotImplementedError('No checkpoint!')
         print('model loaded :' + file_path)
 
-    def infer(queries, references, _query_img=None, _reference_img=None):
+    def infer(queries, references, _query_img=None, _reference_img=None, batch_size=128):
 
         # load, and process images
         if _query_img is None:
@@ -71,13 +71,13 @@ def bind_model(sess):
 
         else:
             # debug
-            _, query_outputs, _, reference_outputs = get_feature(_query_img, _reference_img, sess)
+            _, query_outputs, references, reference_outputs = get_feature(_query_img, _reference_img, sess)
             db = references
 
         sim_matrix = []
         for query_output in query_outputs:
             for reference_output in reference_outputs:
-                sim_matrix.append(get_cnt_inliers)
+                sim_matrix.append(get_cnt_inliers(query_output, reference_output))
         sim_matrix = np.asarray(sim_matrix).reshape(len(query_outputs), len(reference_outputs))
         indices = np.argsort(sim_matrix, axis=1)
         indices = np.flip(indices, axis=1)
@@ -107,8 +107,8 @@ if __name__ == '__main__':
     args.add_argument('--debug_data', type=str, default="./debug_data", help='debug_data')
     args.add_argument('--lr', type=float, default=0.0001, help='learning rate')
 
-    args.add_argument('--dev_querynum', type=int, default=4000, help='dev split percentage')
-    args.add_argument('--dev_referencenum', type=int, default=2, help='dev split percentage')
+    args.add_argument('--dev_querynum', type=int, default=300, help='dev split percentage')
+    args.add_argument('--dev_referencenum', type=int, default=20, help='dev split percentage')
 
     # augmentation
     args.add_argument('--augmentation', action='store_true', help='apply random crop in processing')
@@ -163,10 +163,11 @@ if __name__ == '__main__':
 
     # init model
     global_step = tf.Variable(0, name="mandoo_global_step")
+
     model = Delf_dual_model(X1, X2, num_classes,
-        skipcon_attn=config.skipcon_attn,
-        stop_gradient_sim=config.stop_gradient_sim,
-        logit_concat_sim=config.logit_concat_sim)
+                                skipcon_attn=config.skipcon_attn,
+                                stop_gradient_sim=config.stop_gradient_sim,
+                                logit_concat_sim=config.logit_concat_sim)
 
     # define loss function to optimize 
     acc_logit = tf.zeros([])
@@ -184,8 +185,8 @@ if __name__ == '__main__':
         loss_crossent_2 = tf.nn.softmax_cross_entropy_with_logits_v2(logits=model.logits_2, labels=Y2)
         loss_crossent_logit = tf.reduce_sum(loss_crossent_1 + loss_crossent_2)
 
-        loss_squared_1 = tf.losses.mean_squared_error(labels=Y1, predictions=tf.nn.sigmoid(model.logits_1))
-        loss_squared_2 = tf.losses.mean_squared_error(labels=Y2, predictions=tf.nn.sigmoid(model.logits_2))
+        loss_squared_1 = tf.losses.mean_squared_error(labels=Y1, predictions=tf.nn.softmax(model.logits_1))
+        loss_squared_2 = tf.losses.mean_squared_error(labels=Y2, predictions=tf.nn.softmax(model.logits_2))
         loss_squared_logit = tf.reduce_sum(loss_squared_1 + loss_squared_2)
 
         pred_1 = tf.argmax(model.logits_1, 1, name="pred_1")
@@ -198,7 +199,7 @@ if __name__ == '__main__':
         Y_sim = tf.expand_dims(tf.reduce_sum(Y1 * Y2, axis=1), axis=-1)
         pred_sim = tf.cast(tf.greater(tf.nn.sigmoid(model.similarity), 0.5), tf.int64)
         acc_sim = tf.reduce_mean(tf.cast(tf.equal(pred_sim, tf.cast(Y_sim, tf.int64)), "float"))
-        loss_sim = tf.nn.sigmoid_cross_entropy_with_logits(logits= model.similarity, labels=Y_sim)
+        loss_sim = tf.nn.sigmoid_cross_entropy_with_logits(logits=model.similarity, labels=Y_sim)
         loss_sim = tf.reduce_sum(loss_sim)
 
     if config.train_sim_dist:
@@ -352,8 +353,8 @@ if __name__ == '__main__':
                 _, train_loss, train_loss_logit_cross, train_loss_logit_sqrt, train_loss_sim, train_loss_sim_dist, \
                 train_loss_max_neg, step, train_acc_logit, train_acc_sim, train_loss_triplet = train_step(
                     img_batch_1, label_batch_1, img_batch_2, label_batch_2, config)
+                prev_epoch = epoch
                 epoch = math.floor(step * batch_size / size_of_epoch)
-
                 # print process
                 if step % 30 == 0 or config.debug:
                     print_second = int(time.time() - start_time)
@@ -365,9 +366,9 @@ if __name__ == '__main__':
                         train_loss, train_loss_logit_cross, train_loss_logit_sqrt, train_loss_sim,
                         train_loss_sim_dist, train_loss_max_neg, train_loss_triplet))
 
+                do_save = False
                 if step % 150 == 0 or (config.debug and step % 1 == 0):
-                    do_save = False
-                    infer_result = local_infer(queries, references, queries_img, reference_img)
+                    infer_result = local_infer(queries, references, queries_img, reference_img, batch_size)
                     mAP, mean_recall_at_K, min_first_1_at_K = evaluate_rank(infer_result)
 
                     if best_min_first_K >= min_first_1_at_K:
@@ -381,12 +382,17 @@ if __name__ == '__main__':
                         print("----> Best mAP : best-mAP {:g}".format(best_mAP))
                         do_save = True
 
-                    if do_save:
-                        # save model
-                        nsml.report(summary=True, epoch=str(step), epoch_total=nb_epoch)
-                        nsml.save(step)
-                        print("Model saved : %d step" % step)
-                        print("=============================================================================================================")
+                if epoch - prev_epoch == 1:
+                    print("----> Epoch changed saving")
+                    do_save = True
+
+                if do_save:
+                    # save model
+                    nsml.report(summary=True, epoch=str(step), epoch_total=nb_epoch)
+                    nsml.save(step)
+                    print("Model saved : %d step" % step)
+                    print("=============================================================================================================")
+
 
             except tf.errors.OutOfRangeError:
                 print("finish train!")

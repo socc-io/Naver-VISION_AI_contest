@@ -15,18 +15,13 @@ def get_cnt_inliers(que_outputs, ref_outputs):
 
     locations_1, descriptors_1 = que_outputs
     locations_2, descriptors_2 = ref_outputs
-    locations_1 = np.squeeze(locations_1, axis=0)
-    locations_2 = np.squeeze(locations_2, axis=0)
-    descriptors_1 = np.squeeze(descriptors_1, axis=0)
-    descriptors_2 = np.squeeze(descriptors_2, axis=0)
     num_features_1 = locations_1.shape[0]
     num_features_2 = locations_2.shape[0]
-    print("1111")
-    print(descriptors_1)
+
     # Find nearest-neighbor matches using a KD tree.
     d1_tree = cKDTree(descriptors_1)
     _, indices = d1_tree.query(
-        descriptors_2, distance_upper_bound=_DISTANCE_THRESHOLD)
+        descriptors_2)
 
     # Select feature locations for putative matches.
     locations_2_to_use = np.array([ 
@@ -48,20 +43,21 @@ def get_cnt_inliers(que_outputs, ref_outputs):
         residual_threshold=20,
         max_trials=1000)
     print(inliers)
+    if inliers is None:
+        inliers = [0]
     return sum(inliers)
 
 def get_feature(queries, references, sess):
-    queries = np.asarray(queries)
-    references = np.asarray(references)
+
     query_dataset = tf.data.Dataset.from_generator(
         lambda:image_generator(queries),
         output_types=tf.float32,
-        output_shapes=[224, 224, 3]).batch(32)
+        output_shapes=[224, 224, 3]).batch(1)
 
     reference_dataset = tf.data.Dataset.from_generator(
         lambda:image_generator(references),
         output_types=tf.float32,
-        output_shapes=[224, 224, 3]).batch(32)
+        output_shapes=[224, 224, 3]).batch(1)
 
     query_iterator = query_dataset.make_initializable_iterator()
     reference_iterator = reference_dataset.make_initializable_iterator()
@@ -83,28 +79,36 @@ def get_feature(queries, references, sess):
     feature_scales = graph.get_tensor_by_name('scales:0')
     attention = graph.get_tensor_by_name('scores:0')
 
-
-    try:
-        while True:
+    processed_query_num = 0
+    processed_reference_num = 0
+    while True:
+        try:
             query_imgs = sess.run(query_img)
             feed_dict = {input_x: query_imgs}
             query_locations, query_descriptors, feature_scales_out, attention_out = sess.run(
                 [locations, descriptors, feature_scales, attention],
                  feed_dict)
+            total_query_locations.extend(query_locations)
+            total_query_descriptors.extend(query_descriptors)
+            processed_query_num += 1
+        except tf.errors.OutOfRangeError:
+            print("query[%d/%d] inference complete" % (processed_query_num, len(queries)))
+            break
 
+    while True:
+        try:
             reference_imgs = sess.run(reference_img)
             feed_dict = {input_x: reference_imgs}
             reference_locations, reference_descriptors, feature_scales_out, attention_out = sess.run(
                 [locations, descriptors, feature_scales, attention], 
                 feed_dict)
-
-            total_query_locations.extend(query_locations)
-            total_query_descriptors.extend(query_descriptors)
             total_reference_locations.extend(reference_locations)
             total_reference_descriptors.extend(reference_descriptors)
-    except tf.errors.OutOfRangeError:
-        pass
+            processed_reference_num += 1
+        except tf.errors.OutOfRangeError:
+            print("reference[%d/%d] inference complete" % (processed_reference_num, len(references)))
+            break
 
-    total_query_outputs = (query_locations, query_descriptors)
-    total_reference_outputs = (reference_locations, reference_descriptors)
+    total_query_outputs = list(zip(total_query_locations, total_query_descriptors))
+    total_reference_outputs = list(zip(total_reference_locations, total_reference_descriptors))
     return queries, total_query_outputs, references, total_reference_outputs
