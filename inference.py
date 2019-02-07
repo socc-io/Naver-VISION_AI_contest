@@ -5,6 +5,12 @@ from data_loader import image_generator
 from delf import delf_config_pb2
 from delf import feature_extractor
 from delf import feature_io
+
+from scipy.spatial import cKDTree
+from skimage.feature import plot_matches
+from skimage.measure import ransac
+from skimage.transform import AffineTransform
+
 def get_cnt_inliers(que_outputs, ref_outputs):
 
     locations_1, descriptors_1 = que_outputs
