@@ -278,6 +278,7 @@ def alternative_aligned_generator(train_dataset_path, num_classes=1384, input_sh
     gen_path_list_2, gen_label_list_2 = gen_list()
 
     random_indexes = np.random.permutation(range(len(gen_label_list_1)))
+    print(random_indexes)
     gen_path_list_1 = gen_path_list_1[random_indexes]
     gen_label_list_1 = gen_label_list_1[random_indexes]
     gen_path_list_2 = gen_path_list_2[random_indexes]

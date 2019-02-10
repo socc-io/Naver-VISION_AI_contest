@@ -112,10 +112,11 @@ if __name__ == '__main__':
     args.add_argument('--augmentation', action='store_true', help='apply random crop in processing')
     args.add_argument('--crop', action='store_true', help='set crop images')
     args.add_argument('--fliplr', action='store_true', help='set fliplr')
+    args.add_argument('--flipud', action='store_true', help='set flipud')
     args.add_argument('--gausian', action='store_true', help='set gausian')
     args.add_argument('--dropout', action='store_true', help='set dropout')
     args.add_argument('--noise', action='store_true', help='set noise')
-    args.add_argument('--affine', action='store_true', help='set affine')
+    args.add_argument('--rotate', action='store_true', help='rotate -45 degree to +45 degree')
     # loss calculation
     args.add_argument('--train_logits', action='store_true', help='train similarity and logit jointly')
     args.add_argument('--train_sim', action='store_true', help='train similarity and logit jointly')
