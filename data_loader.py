@@ -14,7 +14,13 @@ from train_utils import l2_normalize
 
 def image_load(img_path, img_size):
     img = cv2.imread(img_path, 1)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    height, width, channel = img.shape
+    square_side = min(height, width)
+    top_height = int((height - square_side) / 2)
+    left_width = int((width - square_side) / 2)
+    img = img[top_height:top_height + square_side,
+             left_width:left_width + square_side]
+    cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, img_size)
     return img
 

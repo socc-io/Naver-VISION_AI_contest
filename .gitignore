@@ -4,4 +4,4 @@ __pycache__
 .Dockerfile_ml
 .idea
 checkpoints
-.debug_data
+debug_data/*
