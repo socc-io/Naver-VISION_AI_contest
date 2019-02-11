@@ -11,6 +11,8 @@ import tensorflow as tf
 import re
 import random
 from train_utils import l2_normalize
+from imgaug import augmenters as iaa
+import imgaug as ia
 
 def image_load(img_path, img_size):
     img = cv2.imread(img_path, 1)
@@ -50,6 +52,21 @@ def image_generator(img_paths):
         img = image_load(img_path, img_size)
         img = np.asarray(img).astype('float32')
         yield img
+
+def query_expand_generator(img_paths):
+    img_size = (224, 224)
+    for img_path in img_paths:
+        img = image_load(img_path, img_size)
+        img = np.asarray(img).astype('float32')
+        seq = iaa.Sequential(iaa.Noop())
+        fliplr_seq = iaa.Sequential(iaa.Fliplr(1.0))
+        flipud_seq = iaa.Sequential(iaa.Flipud(1.0))
+        rotate_seq = iaa.Sequential(iaa.Affine(rotate=(-45.0, 45.0)))
+        seq_list = [seq, fliplr_seq, flipud_seq, rotate_seq]
+        imgs = []
+        for seq in seq_list:
+            imgs.append(seq.augment_image(img))
+        yield imgs
 
 def generator(
     train_dataset_path, 
