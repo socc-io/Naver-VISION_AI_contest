@@ -74,10 +74,19 @@ def bind_model(sess):
             _, query_vecs, _, reference_vecs = get_feature(_query_img, _reference_img, sess, batch_size)
             db = references
 
-        query_vecs = l2_normalize(query_vecs)
+        expanded_queries= l2_normalize(query_vecs)
         reference_vecs = l2_normalize(reference_vecs)
-        sim_matrix = np.dot(query_vecs, reference_vecs.T)
-        indices = np.argsort(sim_matrix, axis=1)
+        total_sim_matrix = np.empty(
+                (expanded_queries.shape[0], reference_vecs.shape[0]),
+                 np.float32)
+        for expanded_query in expanded_queries:
+            sim_matrix = np.dot(expanded_query, reference_vecs.T)
+            sim_matrix = np.expand_dims(
+                np.sum(sim_matrix, axis=0),
+                axis=0)
+            np.append(total_sim_matrix, sim_matrix, axis=0)
+
+        indices = np.argsort(total_sim_matrix, axis=1)
         indices = np.flip(indices, axis=1)
 
         # query = 1, ref = 10
@@ -163,7 +172,7 @@ if __name__ == '__main__':
     # init model
     global_step = tf.Variable(0, name="mandoo_global_step")
 
-    model = Nasnet(X1, X2, num_classes,
+    model = Delf_dual_model(X1, X2, num_classes,
                                 skipcon_attn=config.skipcon_attn,
                                 stop_gradient_sim=config.stop_gradient_sim,
                                 logit_concat_sim=config.logit_concat_sim)
@@ -250,7 +259,6 @@ if __name__ == '__main__':
             print(str(var) + " *INIT FROM CKPT* ")           
         print("Total {:g} variables are restored from ckpt : {}".format(
             len(initialized_variable_names), str(config.pretrained_model)))
-
         tf.train.init_from_checkpoint(
             config.pretrained_model, assignment_map)
 

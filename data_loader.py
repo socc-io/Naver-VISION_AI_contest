@@ -188,6 +188,10 @@ def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
     m = re.match("^(.*):\\d+$", name)
     if m is not None:
       name = m.group(1)
+      name_list = name.split('/')
+      if name_list[0] == 'Nasnet_block':
+          name = '/'.join(name_list[1:])
+          name += '/'
     name_to_variable[name] = var
 
   init_vars = tf.train.list_variables(init_checkpoint)
