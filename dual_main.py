@@ -163,7 +163,7 @@ if __name__ == '__main__':
     # init model
     global_step = tf.Variable(0, name="mandoo_global_step")
 
-    model = Nasnet(X1, X2, num_classes,
+    model = Delf_dual_model(X1, X2, num_classes,
                                 skipcon_attn=config.skipcon_attn,
                                 stop_gradient_sim=config.stop_gradient_sim,
                                 logit_concat_sim=config.logit_concat_sim)
