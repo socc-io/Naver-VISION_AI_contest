@@ -58,17 +58,13 @@ class Delf_dual_model(object):
                 X1, 
                 X2, 
                 num_classes, 
-                resnet_v=1,
+                resnet_v='resnet_v1_50/block4',
                 skipcon_attn=False, 
                 stop_gradient_sim=False, 
                 logit_concat_sim=False):
 
         # get feature map from resnet
-        if resnet_v == 2:
-            delf_model = DelfV2('resnet_v2_50/block4', skipcon_attn=skipcon_attn)
-
-        else:
-            delf_model = DelfV1('resnet_v1_50/block4', skipcon_attn=skipcon_attn)
+        delf_model = DelfV1(resnet_v, skipcon_attn=skipcon_attn)
 
         # get logits, features and attentions from delf model
         logits_1, attn_1, feat_1 = delf_model.AttentionModel(X1, num_classes, training_resnet=True, training_attention=True)

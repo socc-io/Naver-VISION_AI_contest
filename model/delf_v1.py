@@ -28,10 +28,23 @@ from __future__ import print_function
 import tensorflow as tf
 
 from nets import resnet_v1
+from nets import resnet_v2
 
 slim = tf.contrib.slim
 
-_SUPPORTED_TARGET_LAYER = ['resnet_v1_50/block3', 'resnet_v1_50/block4']
+resnet_layers = {'resnet_v1_50': resnet_v1.resnet_v1_50,
+                 'resnet_v1_101': resnet_v1.resnet_v1_101,
+                 'resnet_v1_152': resnet_v1.resnet_v1_152,
+                 'resnet_v2_50': resnet_v2.resnet_v2_50,
+                 'resnet_v2_101': resnet_v2.resnet_v2_101,
+                 'resnet_v2_152': resnet_v2.resnet_v2_152}
+
+_SUPPORTED_TARGET_LAYER = ['resnet_v1_50/block3', 'resnet_v1_50/block4',
+                         'resnet_v1_101/block3', 'resnet_v1_101/block4',
+                         'resnet_v1_152/block3', 'resnet_v1_152/block4',
+                         'resnet_v2_50/block3', 'resnet_v2_50/block4',
+                         'resnet_v2_101/block3', 'resnet_v2_101/block4',
+                         'resnet_v2_152/block3', 'resnet_v2_152/block4']
 
 # The variable scope for the attention portion of the model.
 _ATTENTION_VARIABLE_SCOPE = 'attention_block'
@@ -71,6 +84,17 @@ class DelfV1(object):
     tf.logging.info('Creating model %s ', target_layer_type)
     self.skipcon_attn = skipcon_attn
     self._target_layer_type = target_layer_type
+    self.target_layer = target_layer_type.split('/')[0]
+    self._resnet_layer = resnet_layers[target_layer]
+    self._num_block = target_layer_type.split('/')[1]
+    if 'resnet_v1' in self.target_layer:
+      self._resnet = resnet_v1
+      self._block = resnet_v1.resnet_v1_block
+    elif 'resnet_v2' in self.target_layer:
+      self._resnet = resnet_v2
+      self._block = resnet_v2.resnet_v2_block
+    else:
+      raise ValueError('Unknown resnet type')
     if self._target_layer_type not in _SUPPORTED_TARGET_LAYER:
       raise ValueError('Unknown model type.')
 
@@ -195,7 +219,7 @@ class DelfV1(object):
       end_points['attention_score'] = attention_score
     return prelogits, attention_prob, attention_score, end_points
 
-  def GetResnet50Subnetwork(self,
+  def GetResnetSubnetwork(self,
                             images,
                             is_training=False,
                             global_pool=False,
@@ -214,21 +238,21 @@ class DelfV1(object):
         If global_pool is True, height_out = width_out = 1.
       end_points: A set of activations for external use.
     """
-    block = resnet_v1.resnet_v1_block
+    block = self._block
     blocks = [
         block('block1', base_depth=64, num_units=3, stride=2),
         block('block2', base_depth=128, num_units=4, stride=2),
         block('block3', base_depth=256, num_units=6, stride=2),
     ]
-    if self._target_layer_type == 'resnet_v1_50/block4':
+    if self._num_block == 'block4':
       blocks.append(block('block4', base_depth=512, num_units=3, stride=1))
-    net, end_points = resnet_v1.resnet_v1(
+    net, end_points = self._resnet_layer(
         images,
         blocks,
         is_training=is_training,
         global_pool=global_pool,
         reuse=reuse,
-        scope='resnet_v1_50')
+        scope=self.target_layer)
     return net, end_points
 
   def GetAttentionPrelogit(
@@ -268,15 +292,15 @@ class DelfV1(object):
     """
     # Construct Resnet50 features.
     with slim.arg_scope(
-        resnet_v1.resnet_arg_scope(use_batch_norm=use_batch_norm)):
-      _, end_points = self.GetResnet50Subnetwork(
+        self._resnet.resnet_arg_scope(use_batch_norm=use_batch_norm)):
+      _, end_points = self.GetResnetSubnetwork(
           images, is_training=training_resnet, reuse=reuse)
 
     feature_map = end_points[self._target_layer_type]
 
     # Construct attention subnetwork on top of features.
     with slim.arg_scope(
-        resnet_v1.resnet_arg_scope(
+        self._resnet.resnet_arg_scope(
             weight_decay=weight_decay, use_batch_norm=use_batch_norm)):
       with slim.arg_scope([slim.batch_norm], is_training=training_attention):
         (prelogits, attention_prob, attention_score,
@@ -336,7 +360,7 @@ class DelfV1(object):
             training_attention=training_attention,
             reuse=reuse))
     with slim.arg_scope(
-        resnet_v1.resnet_arg_scope(
+        self._resnet.resnet_arg_scope(
             weight_decay=weight_decay, batch_norm_scale=True)):
       with slim.arg_scope([slim.batch_norm], is_training=training_attention):
         with tf.variable_scope(
@@ -386,7 +410,7 @@ class DelfV1(object):
     Raises:
       ValueError: If unknown target_layer_type is provided.
     """
-    if 'resnet_v1_50' in self._target_layer_type:
+    if self.target_layer in self._target_layer_type:
       net_outputs = self._GetAttentionModel(
           images,
           num_classes,

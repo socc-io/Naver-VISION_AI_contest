@@ -129,7 +129,7 @@ if __name__ == '__main__':
     args.add_argument('--stop_gradient_sim', action='store_true', help='stop gradient similarity')
     args.add_argument('--skipcon_attn', action='store_true', help='skip connection attention')
     args.add_argument('--logit_concat_sim', action='store_true', help='skip connection attention')
-    args.add_argument('--resnet_version', type=int, default=1, help='resnet version')
+    args.add_argument('--resnet_type', type=str, default='resnet_v1_50/block4', help='resnet version')
 
     # DONOTCHANGE: They are reserved for nsml
     args.add_argument('--mode', type=str, default='train')
