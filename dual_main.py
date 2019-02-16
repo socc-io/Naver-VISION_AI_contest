@@ -126,10 +126,10 @@ if __name__ == '__main__':
     args.add_argument('--train_triplet', action="store_true", help="train triplet loss")
     # pre trained model
     args.add_argument('--pretrained_model', type=str, default=None, help='restore pretrained model')
-
     args.add_argument('--stop_gradient_sim', action='store_true', help='stop gradient similarity')
     args.add_argument('--skipcon_attn', action='store_true', help='skip connection attention')
     args.add_argument('--logit_concat_sim', action='store_true', help='skip connection attention')
+    args.add_argument('--resnet_version', type='int', default=1, help='resnet version')
 
     # DONOTCHANGE: They are reserved for nsml
     args.add_argument('--mode', type=str, default='train')
@@ -164,6 +164,7 @@ if __name__ == '__main__':
     global_step = tf.Variable(0, name="mandoo_global_step")
 
     model = Delf_dual_model(X1, X2, num_classes,
+                                resnet_v=config.resnet_version,
                                 skipcon_attn=config.skipcon_attn,
                                 stop_gradient_sim=config.stop_gradient_sim,
                                 logit_concat_sim=config.logit_concat_sim)
