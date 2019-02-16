@@ -164,7 +164,7 @@ if __name__ == '__main__':
     global_step = tf.Variable(0, name="mandoo_global_step")
 
     model = Delf_dual_model(X1, X2, num_classes,
-                                resnet_v=config.resnet_version,
+                                resnet_v=config.resnet_type,
                                 skipcon_attn=config.skipcon_attn,
                                 stop_gradient_sim=config.stop_gradient_sim,
                                 logit_concat_sim=config.logit_concat_sim)

@@ -32,12 +32,14 @@ from nets import resnet_v2
 
 slim = tf.contrib.slim
 
-resnet_layers = {'resnet_v1_50': resnet_v1.resnet_v1_50,
-                 'resnet_v1_101': resnet_v1.resnet_v1_101,
-                 'resnet_v1_152': resnet_v1.resnet_v1_152,
-                 'resnet_v2_50': resnet_v2.resnet_v2_50,
-                 'resnet_v2_101': resnet_v2.resnet_v2_101,
-                 'resnet_v2_152': resnet_v2.resnet_v2_152}
+resnet_layers = {'resnet_v1': resnet_v1.resnet_v1,
+                 'resnet_v2': resnet_v2.resnet_v2}
+
+resnet_block = {'resnet_v1': resnet_v1.resnet_v1_block,
+                'resnet_v2': resnet_v2.resnet_v2_block}
+
+resnet_config = {'resnet_v1': resnet_v1,
+                'resnet_v2': resnet_v2}
 
 _SUPPORTED_TARGET_LAYER = ['resnet_v1_50/block3', 'resnet_v1_50/block4',
                          'resnet_v1_101/block3', 'resnet_v1_101/block4',
@@ -85,14 +87,11 @@ class DelfV1(object):
     self.skipcon_attn = skipcon_attn
     self._target_layer_type = target_layer_type
     self.target_layer = target_layer_type.split('/')[0]
-    self._resnet_layer = resnet_layers[target_layer]
     self._num_block = target_layer_type.split('/')[1]
     if 'resnet_v1' in self.target_layer:
-      self._resnet = resnet_v1
-      self._block = resnet_v1.resnet_v1_block
+      self._version = 'resnet_v1' 
     elif 'resnet_v2' in self.target_layer:
-      self._resnet = resnet_v2
-      self._block = resnet_v2.resnet_v2_block
+      self._version = 'resnet_v2' 
     else:
       raise ValueError('Unknown resnet type')
     if self._target_layer_type not in _SUPPORTED_TARGET_LAYER:
@@ -238,15 +237,14 @@ class DelfV1(object):
         If global_pool is True, height_out = width_out = 1.
       end_points: A set of activations for external use.
     """
-    block = self._block
     blocks = [
-        block('block1', base_depth=64, num_units=3, stride=2),
-        block('block2', base_depth=128, num_units=4, stride=2),
-        block('block3', base_depth=256, num_units=6, stride=2),
+        resnet_block[self._version]('block1', base_depth=64, num_units=3, stride=2),
+        resnet_block[self._version]('block2', base_depth=128, num_units=4, stride=2),
+        resnet_block[self._version]('block3', base_depth=256, num_units=6, stride=2),
     ]
     if self._num_block == 'block4':
-      blocks.append(block('block4', base_depth=512, num_units=3, stride=1))
-    net, end_points = self._resnet_layer(
+      blocks.append(resnet_block[self._version]('block4', base_depth=512, num_units=3, stride=1))
+    net, end_points = resnet_layers[self._version]( 
         images,
         blocks,
         is_training=is_training,
@@ -292,7 +290,7 @@ class DelfV1(object):
     """
     # Construct Resnet50 features.
     with slim.arg_scope(
-        self._resnet.resnet_arg_scope(use_batch_norm=use_batch_norm)):
+        resnet_config[self._version].resnet_arg_scope(use_batch_norm=use_batch_norm)):
       _, end_points = self.GetResnetSubnetwork(
           images, is_training=training_resnet, reuse=reuse)
 
@@ -300,7 +298,7 @@ class DelfV1(object):
 
     # Construct attention subnetwork on top of features.
     with slim.arg_scope(
-        self._resnet.resnet_arg_scope(
+        resnet_config[self._version].resnet_arg_scope(
             weight_decay=weight_decay, use_batch_norm=use_batch_norm)):
       with slim.arg_scope([slim.batch_norm], is_training=training_attention):
         (prelogits, attention_prob, attention_score,
@@ -360,7 +358,7 @@ class DelfV1(object):
             training_attention=training_attention,
             reuse=reuse))
     with slim.arg_scope(
-        self._resnet.resnet_arg_scope(
+        resnet_config[self._version].resnet_arg_scope(
             weight_decay=weight_decay, batch_norm_scale=True)):
       with slim.arg_scope([slim.batch_norm], is_training=training_attention):
         with tf.variable_scope(
