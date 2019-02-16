@@ -55,7 +55,6 @@ class Delf_fuse_model(object):
 class Delf_dual_model(object):
 
     def __init__(self, 
-                resnet_v="v_1", 
                 X1, 
                 X2, 
                 num_classes, 
