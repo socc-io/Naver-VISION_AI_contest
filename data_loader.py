@@ -11,10 +11,18 @@ import tensorflow as tf
 import re
 import random
 from train_utils import l2_normalize
+from imgaug import augmenters as iaa
+import imgaug as ia
 
 def image_load(img_path, img_size):
     img = cv2.imread(img_path, 1)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    height, width, channel = img.shape
+    square_side = min(height, width)
+    top_height = int((height - square_side) / 2)
+    left_width = int((width - square_side) / 2)
+    img = img[top_height:top_height + square_side,
+             left_width:left_width + square_side]
+    cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, img_size)
     return img
 
@@ -44,6 +52,21 @@ def image_generator(img_paths):
         img = image_load(img_path, img_size)
         img = np.asarray(img).astype('float32')
         yield img
+
+def query_expand_generator(img_paths):
+    img_size = (224, 224)
+    for img_path in img_paths:
+        img = image_load(img_path, img_size)
+        img = np.asarray(img).astype('float32')
+        seq = iaa.Sequential(iaa.Noop())
+        fliplr_seq = iaa.Sequential(iaa.Fliplr(1.0))
+        flipud_seq = iaa.Sequential(iaa.Flipud(1.0))
+        rotate_seq = iaa.Sequential(iaa.Affine(rotate=(-45.0, 45.0)))
+        seq_list = [seq, fliplr_seq, flipud_seq, rotate_seq]
+        imgs = []
+        for seq in seq_list:
+            imgs.append(seq.augment_image(img))
+        yield imgs
 
 def generator(
     train_dataset_path, 
@@ -165,6 +188,10 @@ def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
     m = re.match("^(.*):\\d+$", name)
     if m is not None:
       name = m.group(1)
+      name_list = name.split('/')
+      if name_list[0] == 'Nasnet_block':
+          name = '/'.join(name_list[1:])
+          name += '/'
     name_to_variable[name] = var
 
   init_vars = tf.train.list_variables(init_checkpoint)
@@ -272,6 +299,7 @@ def alternative_aligned_generator(train_dataset_path, num_classes=1384, input_sh
     gen_path_list_2, gen_label_list_2 = gen_list()
 
     random_indexes = np.random.permutation(range(len(gen_label_list_1)))
+    print(random_indexes)
     gen_path_list_1 = gen_path_list_1[random_indexes]
     gen_label_list_1 = gen_label_list_1[random_indexes]
     gen_path_list_2 = gen_path_list_2[random_indexes]
