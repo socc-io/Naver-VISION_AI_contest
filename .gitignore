@@ -6,3 +6,4 @@ __pycache__
 checkpoints
 .debug_data/*
 .DS_Store
+parameters

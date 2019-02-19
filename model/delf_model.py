@@ -3,6 +3,7 @@ from model.delf_v2 import DelfV2
 import tensorflow as tf
 from tensorflow.contrib.layers import fully_connected
 
+from google.protobuf import text_format
 from delf import delf_config_pb2
 from delf import feature_extractor
 from delf import feature_io
@@ -53,13 +54,8 @@ class Delf_fuse_model(object):
 
 class Delf_dual_model(object):
 
-    def __init__(self, X1, X2, num_classes, skipcon_attn=False, stop_gradient_sim=False, logit_concat_sim=False):
+    def __init__(self, X1, X2, num_classes, resnet_v, skipcon_attn=False, stop_gradient_sim=False, logit_concat_sim=False):
         bounding_boxes = tf.reshape(tf.constant([0., 0., 1., 1.]), [1, 1, 4])
-        def _get_locations(box):
-            return tf.divide(
-                tf.add(
-                    tf.gather(box, [0, 1], axis=1), tf.gather(box, [2, 3], axis=1)),
-                2.0)
 
         def random_crop(image):
             begin, size, _ = tf.image.sample_distorted_bounding_box(
@@ -107,6 +103,10 @@ class Delf_dual_model(object):
                 reuse=True)
             return attention, feature_map
 
+        config = delf_config_pb2.DelfConfig()
+        with tf.gfile.FastGFile('delf_config.pbtxt', 'r') as f:
+            text_format.Merge(f.read(), config)
+ 
         def _ExtractKeypointDescriptor(image):
             boxes, feature_scales, features, scores = (
                 feature_extractor.ExtractKeypointDescriptor(
@@ -117,16 +117,17 @@ class Delf_dual_model(object):
                     max_feature_num=10,
                     abs_thres=1.5,
                     model_fn=_ModelFn))
-            return boxes, feature_scales, features, scores
+            attentions = tf.reshape(scores, [tf.shape(scores)[0]])
+            locations, descriptors = feature_extractor.DelfFeaturePostProcessing(
+                                                boxes, features, config)
+            
+            return locations, descriptors 
 
         # get descriptors
-        boxes, feature_scales, features, scores = tf.map_fn(
+        locations, descriptors = tf.map_fn(
             _ExtractKeypointDescriptor, 
             X1, 
-            dtype=(tf.float32, tf.float32, tf.float32, tf.float32))
-
-        locations = tf.map_fn(_get_locations, boxes)
-        attentions = tf.map_fn(lambda x: tf.reshape(x, [tf.shape(x)[0]]), scores)
+            dtype=(tf.float32, tf.float32))
 
         # apply trained attention on features
         feat_attn_1 = tf.reduce_sum(attn_1 * feat_1, [1, 2])
@@ -177,11 +178,8 @@ class Delf_dual_model(object):
         self.feat_attn_2 = feat_attn_2
         self.attention_1 = attn_1
         self.attention_2 = attn_2
-        self.features = tf.add(features, 0, name="features")
         self.similarity = tf.expand_dims(sim_12, axis=-1)
-        self.boxes = tf.add(boxes, 0, name="boxes")
-        self.scales = tf.add(feature_scales, 0, name="scales")
-        self.scores = tf.add(attentions, 0, name="scores")
+        self.descriptors = tf.add(descriptors, 0, name="descriptors")
         self.locations = tf.add(locations, 0, name="locations")
 
 

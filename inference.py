@@ -5,11 +5,13 @@ from data_loader import image_generator, query_expand_generator
 from delf import delf_config_pb2
 from delf import feature_extractor
 from delf import feature_io
+from google.protobuf import text_format
 
 from scipy.spatial import cKDTree
 from skimage.feature import plot_matches
 from skimage.measure import ransac
 from skimage.transform import AffineTransform
+from sklearn.decomposition import IncrementalPCA
 
 def get_cnt_inliers(que_outputs, ref_outputs):
 
@@ -75,20 +77,21 @@ def get_feature(queries, references, sess):
     feature_vector = graph.get_tensor_by_name("feature_vector:0")
     input_x = graph.get_tensor_by_name("input_X1:0")
     locations = graph.get_tensor_by_name('locations:0')
-    descriptors = graph.get_tensor_by_name('features:0')
-    feature_scales = graph.get_tensor_by_name('scales:0')
-    attention = graph.get_tensor_by_name('scores:0')
+    descriptors = graph.get_tensor_by_name('descriptors:0')
+    config = delf_config_pb2.DelfConfig() 
 
     processed_query_num = 0
     processed_reference_num = 0
+
     while True:
         try:
             query_imgs = sess.run(query_img)
             feed_dict = {input_x: query_imgs}
-            query_locations, query_descriptors, feature_scales_out, attention_out = sess.run(
-                [locations, descriptors, feature_scales, attention],
+            query_locations, query_descriptors = sess.run(
+                [locations, descriptors],
                  feed_dict)
             total_query_locations.extend(query_locations)
+            print("query_locations !!! == > {}".format(query_locations.shape))
             total_query_descriptors.extend(query_descriptors)
             processed_query_num += 1
         except tf.errors.OutOfRangeError:
@@ -99,8 +102,8 @@ def get_feature(queries, references, sess):
         try:
             reference_imgs = sess.run(reference_img)
             feed_dict = {input_x: reference_imgs}
-            reference_locations, reference_descriptors, feature_scales_out, attention_out = sess.run(
-                [locations, descriptors, feature_scales, attention], 
+            reference_locations, reference_descriptors = sess.run(
+                [locations, descriptors], 
                 feed_dict)
             total_reference_locations.extend(reference_locations)
             total_reference_descriptors.extend(reference_descriptors)
