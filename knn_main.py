@@ -32,6 +32,7 @@ import imgaug as ia
 from delf import delf_config_pb2
 from delf import feature_extractor
 from delf import feature_io
+from scipy.spatial import cKDTree
 
 local_infer = None
 
@@ -74,21 +75,38 @@ def bind_model(sess):
             _, query_vecs, _, reference_vecs = get_feature(_query_img, _reference_img, sess, batch_size)
             db = references
 
-        query_vecs = l2_normalize(query_vecs)
-        reference_vecs = l2_normalize(reference_vecs)
-        sim_matrix = np.dot(query_vecs, reference_vecs.T)
-        indices = np.argsort(sim_matrix, axis=1)
-        indices = np.flip(indices, axis=1)
+        kd_tree = cKDTree(query_vecs)
+        _, indices = kd_tree.query(reference_vecs, distance_upper_bound = 0.8)
 
-        # query = 1, ref = 10
-        # sim_matrix[0] = [0.1, 0.56, 0.2, 0.5, ....]
-        # Sort cosine similarity values to rank it
         retrieval_results = {}
 
-        for (i, query) in enumerate(queries):
-            ranked_list = [db[k] for k in indices[i]]
-            ranked_list = ranked_list[:5000]
-            retrieval_results[query] = ranked_list
+        query_vecs = l2_normalize(query_vecs)
+        reference_vecs = l2_normalize(reference_vecs)
+        print("indices == {}".format(indices))
+
+        def get_ranked_list(query, reference_vecs):
+            sim_matrix = np.dot(query, reference_vecs.T)
+            sub_indices = np.argsort(sim_matrix)
+            sub_indices = np.flip(sub_indices)
+            ranked_list = [db[k] for k in sub_indices]
+            return ranked_list
+        
+        queries_name = {}
+        for idx, query_name in enumerate(queries):
+            queries_name[idx] = query_name
+
+        for i, query in enumerate(query_vecs):
+            ref_indices = np.argwhere(indices == i)
+            if len(ref_indices) == 0:
+                ranked_list = get_ranked_list(query, reference_vecs)
+            else:
+                clustered_ref = reference_vecs[ref_indices]
+                left_over_indices = np.argwhere(indices != i)
+                left_over_ref = reference_vecs[left_over_indices]
+                clustered_ranked_list = get_ranked_list(query, clustered_ref)
+                left_over_ranked_list = get_ranked_list(query, left_over_ref)
+                ranked_list = clustered_ref + left_over_ref
+            retrieval_results[queries_name[i]] = ranked_list
         return list(zip(range(len(retrieval_results)), retrieval_results.items()))
 
     # DONOTCHANGE: They are reserved for nsml
