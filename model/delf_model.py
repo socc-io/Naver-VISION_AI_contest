@@ -61,7 +61,8 @@ class Delf_dual_model(object):
                 resnet_v='resnet_v1_50/block4',
                 skipcon_attn=False, 
                 stop_gradient_sim=False, 
-                logit_concat_sim=False):
+                logit_concat_sim=False,
+                l2_normalize=False):
 
         # get feature map from resnet
         delf_model = DelfV1(resnet_v, skipcon_attn=skipcon_attn)
@@ -103,6 +104,10 @@ class Delf_dual_model(object):
         # pass through 2 dense layer (feature -> 1024 -> 512 > output) 
         feat_attn_1 = dual_vector_fc(feat_attn_1)
         feat_attn_2 = dual_vector_fc(feat_attn_2, reuse=True)
+
+        if l2_normalize:
+            feat_attn_1 = tf.nn.l2_normalize(feat_attn_1, axis=1)
+            feat_attn_2 = tf.nn.l2_normalize(feat_attn_2, axis=2)
 
         # normalize features
         normalize_a = tf.nn.l2_normalize(feat_attn_1, axis=1)
@@ -251,6 +256,85 @@ class Nasnet(object):
         self.feat_map = tf.add(features_1, 0, name="feature_map")
         self.similarity = tf.expand_dims(sim_12, axis=-1)
 
+class Delf_triplet_model(object):
 
+    def __init__(self, 
+                X1, 
+                X2,
+                X3, 
+                num_classes, 
+                resnet_v='resnet_v1_50/block4',
+                skipcon_attn=False, 
+                stop_gradient_sim=False, 
+                logit_concat_sim=False,
+                l2_normalize=False):
 
+        # get feature map from resnet
+        delf_model = DelfV1(resnet_v, skipcon_attn=skipcon_attn)
+
+        # get logits, features and attentions from delf model
+        logits_1, attn_1, feat_1 = delf_model.AttentionModel(X1, num_classes, training_resnet=True, training_attention=True)
+        logits_2, attn_2, feat_2 = delf_model.AttentionModel(X2, num_classes, training_resnet=True, training_attention=True, reuse=True)
+        logits_2, attn_2, feat_2 = delf_model.AttentionModel(X2, num_classes, training_resnet=True, training_attention=True, reuse=True)
+
+        # apply trained attention on features
+        feat_attn_1 = tf.reduce_sum(attn_1 * feat_1, [1, 2])
+        feat_attn_2 = tf.reduce_sum(attn_2 * feat_2, [1, 2])
+        feat_attn_3 = tf.reduce_sum(attn_3 * feat_3, [1, 2])
         
+        # concate feature with feature_with_attn 
+        if skipcon_attn:
+            feat_attn_1 += tf.reduce_sum(feat_1, [1, 2])
+            feat_attn_2 += tf.reduce_sum(feat_2, [1, 2])
+            feat_attn_3 += tf.reduce_sum(feat_3, [1, 2]) 
+
+        # fine tuning without attention
+        logits_1_support = logits_1
+        logits_2_support = logits_2
+        logits_3_support = logits_3
+
+        if stop_gradient_sim:
+            feat_attn_1 = tf.stop_gradient(feat_attn_1)
+            feat_attn_2 = tf.stop_gradient(feat_attn_2)
+            feat_attn_3 = tf.stop_gradient(feat_attn_3)
+            logits_1_support = tf.stop_gradient(logits_1_support)
+            logits_2_support = tf.stop_gradient(logits_2_support)
+            logits_3_support = tf.stop_gradient(logits_3_support)
+
+        def dual_vector_fc(feat_attn_x, reuse=None):
+            with tf.variable_scope("dual_vector_fc_v1") as scope:
+                v = fully_connected(feat_attn_x, 1024, activation_fn=tf.nn.relu, scope=scope, reuse=reuse)
+            with tf.variable_scope("dual_vector_fc_v2") as scope:
+                v = fully_connected(v, 2048, activation_fn=None, scope=scope, reuse=reuse)
+            return v
+
+        if logit_concat_sim:
+            feat_attn_1 = tf.concat([feat_attn_1, logits_1_support], axis=-1)
+            feat_attn_2 = tf.concat([feat_attn_2, logits_2_support], axis=-1)
+            feat_attn_3 = tf.concat([feat_attn_3, logits_3_support], axis=-1)
+
+        # pass through 2 dense layer (feature -> 1024 -> 512 > output) 
+        feat_attn_1 = dual_vector_fc(feat_attn_1)
+        feat_attn_2 = dual_vector_fc(feat_attn_2, reuse=True)
+        feat_attn_3 = dual_vector_fc(feat_attn_3, reuse=True)
+
+        if l2_normalize:
+            feat_attn_1 = tf.nn.l2_normalize(feat_attn_1, axis=1)
+            feat_attn_2 = tf.nn.l2_normalize(feat_attn_2, axis=1)
+
+        # normalize features
+        normalize_anchor = tf.nn.l2_normalize(feat_attn_1, axis=1)
+        normalize_positive = tf.nn.l2_normalize(feat_attn_2, axis=1)
+        normalize_negative = tf.nn.l2_normalize(feat_attn_3, axis=1) 
+
+        self.feature_vector = tf.add(feat_attn_1, 0, name="feature_vector")
+        self.logits_1 = tf.add(logits_1, 0, name="logit_1")
+        self.logits_2 = logits_2
+        self.logits_3 = logits_3
+        self.feat_attn_1 = feat_attn_1
+        self.feat_attn_2 = feat_attn_2
+        self.feat_attn_3 = feat_attn_3
+        self.attention_1 = attn_1
+        self.attention_2 = attn_2
+        self.attention_3 = attn_3
+        self.feat_map = tf.add(feat_1, 0, name="feature_map")

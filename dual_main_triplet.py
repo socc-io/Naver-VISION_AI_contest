@@ -130,6 +130,8 @@ if __name__ == '__main__':
     args.add_argument('--skipcon_attn', action='store_true', help='skip connection attention')
     args.add_argument('--logit_concat_sim', action='store_true', help='skip connection attention')
     args.add_argument('--resnet_type', type=str, default='resnet_v1_50/block4', help='resnet version')
+    args.add_argument('--normalize', action='store_true', help="set normalize")
+    args.add_argument('--margin', type=int, default=10, help="set triplet loss margin")
 
     # DONOTCHANGE: They are reserved for nsml
     args.add_argument('--mode', type=str, default='train')
@@ -159,15 +161,22 @@ if __name__ == '__main__':
         name="input_X2"
     )
     Y2 = tf.placeholder(tf.float32, [None, num_classes], name="input_Y2")
+    X3 = tf.placeholder(
+        tf.float32,
+        [None, input_shape[0], input_shape[1], 3],
+        name="input_x3"
+    )
+    Y3 = tf.placeholder(tf.float32, [None, num_classes], name="input_Y3")
 
     # init model
     global_step = tf.Variable(0, name="mandoo_global_step")
 
-    model = Delf_dual_model(X1, X2, num_classes,
+    model = Delf_triplet_model(X1, X2, X3, num_classes,
                                 resnet_v=config.resnet_type,
                                 skipcon_attn=config.skipcon_attn,
                                 stop_gradient_sim=config.stop_gradient_sim,
-                                logit_concat_sim=config.logit_concat_sim)
+                                logit_concat_sim=config.logit_concat_sim
+                                l2_normalize=config.feature_normalize)
 
     # define loss function to optimize 
     acc_logit = tf.zeros([])
@@ -183,45 +192,28 @@ if __name__ == '__main__':
     if config.train_logits:
         loss_crossent_1 = tf.nn.softmax_cross_entropy_with_logits_v2(logits=model.logits_1, labels=Y1)
         loss_crossent_2 = tf.nn.softmax_cross_entropy_with_logits_v2(logits=model.logits_2, labels=Y2)
-        loss_crossent_logit = tf.reduce_sum(loss_crossent_1 + loss_crossent_2)
+        loss_crossent_3 = tf.nn.softmax_cross_entropy_with_logits_v2(logits=model.logits_3, labels=Y3)
+        loss_crossent_logit = tf.reduce_sum(loss_crossent_1 + loss_crossent_2 + loss_crossent_3)
 
         loss_squared_1 = tf.losses.mean_squared_error(labels=Y1, predictions=tf.nn.softmax(model.logits_1))
         loss_squared_2 = tf.losses.mean_squared_error(labels=Y2, predictions=tf.nn.softmax(model.logits_2))
-        loss_squared_logit = tf.reduce_sum(loss_squared_1 + loss_squared_2)
+        loss_squared_3 = tf.losses.mean_squared_error(labels=Y3, predictions=tf.nn.softmax(model.logits_3))
+        loss_squared_logit = tf.reduce_sum(loss_squared_1 + loss_squared_2 + loss_squared_3)
 
         pred_1 = tf.argmax(model.logits_1, 1, name="pred_1")
         pred_2 = tf.argmax(model.logits_2, 1, name="pred_2")
+        pred_3 = tf.argmax(model.logits_3, 1, name="pred_3")
+        
         acc_1 = tf.reduce_mean(tf.cast(tf.equal(pred_1, tf.argmax(Y1, 1)), "float"))
         acc_2 = tf.reduce_mean(tf.cast(tf.equal(pred_2, tf.argmax(Y2, 1)), "float"))
-        acc_logit = (acc_1 + acc_2) / 2.0
-
-    if config.train_sim:
-        Y_sim = tf.expand_dims(tf.reduce_sum(Y1 * Y2, axis=1), axis=-1)
-        pred_sim = tf.cast(tf.greater(tf.nn.sigmoid(model.similarity), 0.5), tf.int64)
-        acc_sim = tf.reduce_mean(tf.cast(tf.equal(pred_sim, tf.cast(Y_sim, tf.int64)), "float"))
-        loss_sim = tf.nn.sigmoid_cross_entropy_with_logits(logits=model.similarity, labels=Y_sim)
-        loss_sim = tf.reduce_sum(loss_sim)
-
-    if config.train_sim_dist:
-        sig_f1 = tf.nn.sigmoid(model.feat_attn_1)
-        sig_f2 = tf.nn.sigmoid(model.feat_attn_2)
-        Y_sim_dist = (tf.expand_dims(tf.reduce_sum(Y1 * Y2, axis=1), axis=-1) - 0.5) * 2
-        loss_sim_dist = Y_sim_dist * tf.losses.mean_squared_error(labels=sig_f1, predictions=sig_f2)
-        loss_sim_dist = tf.reduce_sum(loss_sim_dist)
-
-    if config.train_max_neg:
-        logit_sum_1, _ = tf.reduce_sum(model.logits_1, axis=1)
-        pred_value_1, _ = tf.nn.top_k(model.logits_1, k=1)
-        logit_sum_2, _ = tf.reduce_sum(model.logits_2, axis=1)
-        pred_value_2, _ = tf.nn.top_k(model.logits_2, k=1)
+        acc_3 = tf.reduce_mean(tf.cast(tf.equal(pred_3, tf.argmax(Y3, 1)), "float"))
         
-        loss_max_neg_1 = tf.reduce_sum(tf.maximum(tf.subtract(logit_sum_1, pred_value_1), 0.0))
-        loss_max_neg_2 = tf.reduce_sum(tf.maximum(tf.subtract(logit_sum_2, pred_value_2), 0.0))
-
-        loss_max_neg = (loss_max_neg_1 + loss_max_neg_2) / 2.0
+        acc_logit = (acc_1 + acc_2 + acc_3) / 3.0
 
     if config.train_triplet:
-        loss_triplet = batch_hard_triplet_loss(Y1, model.feature_vector, 100, squared=True)
+        positive_dist = tf.sqrt(tf.reduce_sum(tf.pow(model.feat_attn_1 - model.feat_attn_2, 2)))
+        negative_dist = tf.sqrt(tf.reduce_sum(tf.pow(model.feat_attn_1 - model.feat_attn_3, 2)))
+        loss_triplet = tf.maxmum(0, (positive_dist - negative_dist + config.margin))
 
     loss = loss_sim + loss_squared_logit + loss_crossent_logit \
         + loss_sim_dist + loss_max_neg + loss_triplet

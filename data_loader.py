@@ -363,6 +363,62 @@ def aligned_generator(
             yield (img, label)
         label_number += 1
 
+def triplet_generator(train_dataset_path, num_classes=1384, input_shape=(224, 224)):
+
+    def gen_list():
+        class_name_map = {}
+        class_num_map = {}
+        class_index = 0
+        for outputs in os.walk(train_dataset_path):
+            class_name, _, files = outputs
+            for filename in files:
+                class_list = class_name_map.get(class_name, [])
+                class_list.append(filename)
+                class_name_map[class_name] = class_list
+                class_num_map[class_name] = class_index
+            class_index +=1
+
+        gen_path_list = []
+        gen_label_list = []
+        for outputs in os.walk(train_dataset_path):
+            class_name, _, files = outputs
+            for filename in files:
+                for enum in range(3):
+                    if enum in (0, 1):
+                        class_name_list = list(class_name_map.keys())
+                        ran_class_name = random.choice(class_name_list)
+                    else :
+                        ran_class_name = class_name
+                    ran_filename = random.choice(class_name_map[ran_class_name])
+                    gen_path_list.append(os.path.join(ran_class_name, ran_filename))
+                    gen_label_list.append(class_num_map[ran_class_name])
+
+        return np.array(gen_path_list), np.array(gen_label_list)
+
+    gen_path_list_1, gen_label_list_1 = gen_list()
+    gen_path_list_2, gen_label_list_2 = gen_list()
+    gen_path_list_3, gen_label_list_3 = gen_list()
+
+    random_indexes = np.random.permutation(range(len(gen_label_list_1)))
+    gen_path_list_1 = gen_path_list_1[random_indexes]
+    gen_label_list_1 = gen_label_list_1[random_indexes]
+    gen_path_list_2 = gen_path_list_2[random_indexes]
+    gen_label_list_2 = gen_label_list_2[random_indexes]
+    get_path_list_3 = get_path_list_3[random_indexes]
+    get_label_list_3 = gen_path_list_3[random_indexes]
+
+    for img_path_1, label_number_1, img_path_2, label_number_2 in zip(gen_path_list_1, gen_label_list_1, gen_path_list_2, gen_label_list_2):
+        try:
+            img_1 = image_load(img_path_1, img_size=input_shape[:2])
+            img_2 = image_load(img_path_2, img_size=input_shape[:2])
+            img_3 = image_load(img_path_3, img_size=input_shape[:2])
+        except:
+            continue
+        y_cate_1 = tf.keras.utils.to_categorical(label_number_1, num_classes=num_classes)
+        y_cate_2 = tf.keras.utils.to_categorical(label_number_2, num_classes=num_classes)
+        y_cate_3 = tf.keras.utils.to_categorical(label_number_3, num_classes=num_classes)
+        yield (img_1, img_2, img_3, y_cate_1, y_cate_2, y_cate_3)
+
 if __name__ == '__main__':
     query, refer = test_data_loader('./')
     print(query)
